@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>2D坦克射擊遊戲（語音不中斷版｜0.5cm 位移）</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .game-area{background:linear-gradient(to bottom,#87CEEB 0%,#98FB98 100%);position:relative;overflow:hidden}
+    .tank{position:absolute;bottom:20px;transition:left .08s ease;transform:translateX(-50%);will-change:left}
+    .bullet{position:absolute;width:4px;height:12px;background:#FFD700;border-radius:2px}
+    .target{position:absolute;transition:transform .2s ease;will-change:transform}
+    .explosion{position:absolute;font-size:30px;animation:explode .5s ease-out forwards;pointer-events:none}
+    @keyframes explode{0%{transform:scale(0);opacity:1}50%{transform:scale(1.5);opacity:.8}100%{transform:scale(2);opacity:0}}
+    .victory{animation:victory 1s ease-in-out infinite alternate}
+    @keyframes victory{0%{transform:scale(1)}100%{transform:scale(1.05)}}
+    .led{width:10px;height:10px;border-radius:9999px}
+    .toggle{appearance:none;width:38px;height:22px;border-radius:9999px;background:#e5e7eb;position:relative;cursor:pointer;outline:none;transition:.2s}
+    .toggle:checked{background:#4f46e5}
+    .toggle:before{content:"";position:absolute;width:18px;height:18px;border-radius:9999px;background:#fff;top:2px;left:2px;transition:.2s}
+    .toggle:checked:before{left:18px}
+  </style>
+</head>
+<body class="bg-gray-900 min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-5xl w-full">
+    <h1 class="text-3xl font-bold text-center mb-4 text-gray-800">🎯 2D坦克射擊遊戲（語音不中斷版）</h1>
+
+    <!-- 狀態列 -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4 bg-gray-100 rounded-lg p-4">
+      <div class="flex items-center gap-6">
+        <div class="text-lg font-semibold">
+          <span class="text-gray-700">目標剩餘：</span><span id="targetsLeft" class="text-red-600">5</span>
+        </div>
+        <div class="text-lg font-semibold">
+          <span class="text-gray-700">分數：</span><span id="score" class="text-blue-600">0</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <label class="flex items-center gap-2 text-sm text-gray-700 select-none">
+          <input id="autoResumeToggle" type="checkbox" class="toggle" checked>
+          自動續聽
+        </label>
+        <button id="restartBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">重新開始</button>
+        <button id="startVoiceBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">開始語音</button>
+        <button id="stopVoiceBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">停止語音</button>
+        <button id="toggleSoundBtn" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg" title="音效開關">🔊 音效：開</button>
+        <div class="flex items-center gap-2 ml-2">
+          <div id="micLed" class="led bg-red-400"></div>
+          <span id="voiceStatus" class="text-sm text-gray-700">語音：未啟動</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 遊戲區 -->
+    <div id="gameArea" class="game-area w-full h-96 rounded-xl border-4 border-gray-300 relative">
+      <!-- 坦克（砲管朝上） -->
+      <div id="tank" class="tank">
+        <svg width="64" height="52" viewBox="0 0 64 52">
+          <rect x="7" y="34" width="50" height="12" rx="6" fill="#2d3748"/>
+          <rect x="12" y="22" width="40" height="15" rx="3" fill="#4a5568"/>
+          <circle cx="32" cy="24" r="8" fill="#2d3748"/>
+          <!-- 砲管朝上 -->
+          <rect x="30" y="2" width="4" height="20" rx="2" fill="#1a202c"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 說明 -->
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-blue-50 rounded-lg p-4">
+        <h3 class="font-semibold text-blue-800 mb-2">🎮 鍵盤控制：</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div class="flex items-center"><span class="bg-blue-200 px-2 py-1 rounded mr-2">A / ←</span><span>向左移動（慢）</span></div>
+          <div class="flex items-center"><span class="bg-blue-200 px-2 py-1 rounded mr-2">D / →</span><span>向右移動（慢）</span></div>
+          <div class="flex items-center"><span class="bg-red-200 px-2 py-1 rounded mr-2">Space</span><span>發射砲彈</span></div>
+        </div>
+      </div>
+      <div class="bg-amber-50 rounded-lg p-4">
+        <h3 class="font-semibold text-amber-800 mb-2">🗣️ 語音控制（中文指令，支援即時）：</h3>
+        <ul class="text-sm space-y-1 text-amber-900">
+          <li>「向左移動」、「向右移動」：持續移動（速度較慢）</li>
+          <li>「向左一點」、「向右一點」：小幅移動（0.5 cm）</li>
+          <li>「停止」：停止移動</li>
+          <li>「發射」／「開火」／「發射砲彈」：射擊</li>
+        </ul>
+        <div class="mt-3 text-xs text-amber-700">若辨識沉默一段時間或意外結束，會自動續聽（除非你關掉「自動續聽」）。</div>
+      </div>
+    </div>
+
+    <!-- 語音字幕 -->
+    <div class="mt-4 bg-gray-50 rounded-lg p-4">
+      <h3 class="font-semibold text-gray-800 mb-2">📝 語音辨識</h3>
+      <div class="text-sm text-gray-600">最後指令：<span id="lastCommand" class="font-semibold text-gray-800">（尚無）</span></div>
+      <div class="mt-2 text-xs text-gray-500 break-words">即時辨識：<span id="interimText" class="text-gray-800"></span></div>
+    </div>
+
+    <!-- 勝利 -->
+    <div id="victoryMessage" class="hidden mt-4 bg-green-100 border-2 border-green-400 rounded-lg p-6 text-center">
+      <div class="text-4xl mb-2">🎉</div>
+      <h2 class="text-2xl font-bold text-green-800 mb-2">恭喜過關！</h2>
+      <p class="text-green-700">你成功擊毀了所有目標！</p>
+    </div>
+  </div>
+
+  <script>
+    /* ========= 音效 ========= */
+    const gameState = { audioContext: null, soundEnabled: true };
+    function ensureAudioContext() {
+      try {
+        if (!gameState.audioContext) gameState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (gameState.audioContext.state === 'suspended') gameState.audioContext.resume();
+      } catch (e) { console.error("Web Audio API not supported", e); }
+    }
+    function playSound(type) {
+      if (!gameState.soundEnabled) return;
+      ensureAudioContext();
+      const ctx = gameState.audioContext; if (!ctx) return;
+      try {
+        if (ctx.state === 'suspended') ctx.resume();
+        switch(type) {
+          case 'click': {
+            const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+            const t=ctx.currentTime; o.type='sine'; o.frequency.setValueAtTime(440,t);
+            g.gain.setValueAtTime(0.3,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.2);
+            o.start(); o.stop(t+0.2); break;
+          }
+          case 'flip': {
+            const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+            const t=ctx.currentTime; o.type='sine'; o.frequency.setValueAtTime(330,t);
+            g.gain.setValueAtTime(0.2,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.2);
+            o.start(); o.stop(t+0.2); break;
+          }
+          case 'match': {
+            const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+            const t=ctx.currentTime; o.type='sine'; o.frequency.setValueAtTime(523.25,t);
+            g.gain.setValueAtTime(0.3,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.5);
+            o.start(); o.stop(t+0.5); break;
+          }
+          case 'shoot': {
+            const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+            const t=ctx.currentTime; o.type='square';
+            o.frequency.setValueAtTime(800,t); o.frequency.exponentialRampToValueAtTime(300,t+0.12);
+            g.gain.setValueAtTime(0.25,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.12);
+            o.start(t); o.stop(t+0.13); break;
+          }
+          case 'explode': {
+            const o1=ctx.createOscillator(), o2=ctx.createOscillator(), g=ctx.createGain();
+            o1.type='sawtooth'; o2.type='triangle'; o1.connect(g); o2.connect(g); g.connect(ctx.destination);
+            const t=ctx.currentTime; o1.frequency.setValueAtTime(120,t); o2.frequency.setValueAtTime(60,t);
+            g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.25);
+            o1.start(t); o2.start(t); o1.stop(t+0.25); o2.stop(t+0.25); break;
+          }
+          case 'victory': {
+            const tone=(f,s,d)=>{const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+              o.type='sine'; g.gain.setValueAtTime(0.001,s); g.gain.linearRampToValueAtTime(0.3,s+0.02); g.gain.exponentialRampToValueAtTime(0.01,s+d);
+              o.frequency.setValueAtTime(f,s); o.start(s); o.stop(s+d+0.02);};
+            const t=ctx.currentTime; tone(659.25,t,0.18); tone(783.99,t+0.2,0.22); break;
+          }
+        }
+      } catch(e){ console.warn('sound error', e); }
+    }
+
+    /* ========= 公用：單位換算 ========= */
+    function cmToPx(cm) {
+      const div = document.createElement('div');
+      div.style.width = cm + 'cm';
+      div.style.position = 'absolute';
+      div.style.visibility = 'hidden';
+      document.body.appendChild(div);
+      const px = div.getBoundingClientRect().width;
+      document.body.removeChild(div);
+      return px;
+    }
+
+    /* ========= 遊戲主體 ========= */
+    class TankGame {
+      constructor() {
+        this.gameArea = document.getElementById('gameArea');
+        this.tank = document.getElementById('tank');
+        this.scoreElement = document.getElementById('score');
+        this.targetsLeftElement = document.getElementById('targetsLeft');
+        this.victoryMessage = document.getElementById('victoryMessage');
+        this.restartBtn = document.getElementById('restartBtn');
+        this.toggleSoundBtn = document.getElementById('toggleSoundBtn');
+        this.autoResumeToggle = document.getElementById('autoResumeToggle');
+
+        this.tankX = 0;
+        this.moveDir = 0;
+        this.bullets = [];
+        this.targets = [];
+        this.score = 0;
+        this.gameWidth = 0;
+        this.gameHeight = 0;
+        this.gameRunning = true;
+
+        this.continuousSpeedPx = 2;         // 慢速連續移動
+        this.stepDeltaPx = cmToPx(0.5);     // 「一點」= 0.5 cm
+
+        this.minX = 0;
+        this.maxX = 0;
+
+        this.init();
+      }
+
+      init() {
+        const resize = () => {
+          const oldW = this.gameWidth || 1;
+          this.gameWidth = this.gameArea.clientWidth;
+          this.gameHeight = this.gameArea.clientHeight;
+          this.tankX = this.tankX ? (this.tankX * this.gameWidth / oldW) : this.gameWidth * 0.5;
+          this.stepDeltaPx = cmToPx(0.5);
+          this.updateBounds();
+          this.applyTankLeft();
+        };
+        resize();
+        window.addEventListener('resize', resize, { passive: true });
+
+        this.createTargets();
+        this.setupEventListeners();
+        this.gameLoop();
+      }
+
+      updateBounds() {
+        this.minX = this.gameWidth * 0.05;
+        this.maxX = this.gameWidth * 0.95;
+        this.tankX = Math.max(this.minX, Math.min(this.maxX, this.tankX));
+      }
+
+      applyTankLeft() { this.tank.style.left = `${this.tankX}px`; }
+
+      createTargets() {
+        this.targets.forEach(t => t.element.remove());
+        this.targets = [];
+        const n = 5;
+        for (let i = 0; i < n; i++) {
+          const el = document.createElement('div');
+          el.className = 'target';
+          el.innerHTML = '🎯';
+          el.style.fontSize = '30px';
+          const ratio = (i + 1) / (n + 1);
+          const x = ratio * this.gameWidth;
+          const y = (20 + Math.random() * 30) * this.gameHeight / 100;
+          el.style.left = `${x}px`;
+          el.style.top = `${y}px`;
+          el.style.transform = 'translate(-50%, -50%)';
+          this.gameArea.appendChild(el);
+          this.targets.push({ element: el, x, y, width: 30, height: 30 });
+        }
+        this.updateTargetsLeft();
+      }
+
+      setupEventListeners() {
+        document.addEventListener('keydown', (e) => {
+          if (!this.gameRunning) return;
+          ensureAudioContext();
+          switch (e.code) {
+            case 'KeyA':
+            case 'ArrowLeft': this.moveDir = -1; break;
+            case 'KeyD':
+            case 'ArrowRight': this.moveDir = 1; break;
+            case 'Space': e.preventDefault(); this.shoot(); break;
+          }
+        });
+        document.addEventListener('keyup', (e) => {
+          if (['KeyA','ArrowLeft','KeyD','ArrowRight'].includes(e.code)) this.moveDir = 0;
+        });
+        this.restartBtn.addEventListener('click', () => { ensureAudioContext(); playSound('click'); this.restart(); });
+        this.toggleSoundBtn.addEventListener('click', () => {
+          gameState.soundEnabled = !gameState.soundEnabled;
+          this.toggleSoundBtn.textContent = gameState.soundEnabled ? '🔊 音效：開' : '🔇 音效：關';
+          if (gameState.soundEnabled){ ensureAudioContext(); playSound('click'); }
+        });
+      }
+
+      moveStep(direction) {
+        this.tankX += this.stepDeltaPx * (direction < 0 ? -1 : 1);
+        this.tankX = Math.max(this.minX, Math.min(this.maxX, this.tankX));
+        this.applyTankLeft();
+        playSound('flip');
+      }
+
+      shoot() {
+        playSound('shoot');
+        const bullet = document.createElement('div');
+        bullet.className = 'bullet';
+        const xPx = this.tankX;
+        const yPx = this.gameHeight - 70;
+        bullet.style.left = `${xPx - 2}px`;
+        bullet.style.top = `${yPx}px`;
+        this.gameArea.appendChild(bullet);
+        this.bullets.push({ element: bullet, x: xPx, y: yPx, speed: 6 });
+      }
+
+      updateBullets() {
+        this.bullets = this.bullets.filter(b => {
+          b.y -= b.speed;
+          b.element.style.top = `${b.y}px`;
+          b.element.style.left = `${b.x - 2}px`;
+          if (b.y < -12) { b.element.remove(); return false; }
+          return true;
+        });
+      }
+
+      updateTankByDir() {
+        if (this.moveDir === 0) return;
+        this.tankX += this.continuousSpeedPx * this.moveDir;
+        this.tankX = Math.max(this.minX, Math.min(this.maxX, this.tankX));
+        this.applyTankLeft();
+      }
+
+      checkCollisions() {
+        this.bullets.forEach((b, bi) => {
+          this.targets.forEach((t, ti) => {
+            const halfW = t.width / 2, halfH = t.height / 2;
+            if (b.x >= t.x - halfW && b.x <= t.x + halfW && b.y >= t.y - halfH && b.y <= t.y + halfH) {
+              this.createExplosion(t.x, t.y);
+              playSound('match');
+              b.element.remove(); t.element.remove();
+              this.bullets.splice(bi, 1); this.targets.splice(ti, 1);
+              this.score += 100; this.updateScore(); this.updateTargetsLeft();
+              if (this.targets.length === 0) this.victory();
+            }
+          });
+        });
+      }
+
+      createExplosion(x, y) {
+        const exp = document.createElement('div');
+        exp.className = 'explosion';
+        exp.textContent = '💥';
+        exp.style.left = `${x}px`; exp.style.top = `${y}px`;
+        exp.style.transform = 'translate(-50%, -50%)';
+        this.gameArea.appendChild(exp);
+        playSound('explode');
+        setTimeout(() => exp.remove(), 520);
+      }
+
+      updateScore(){ this.scoreElement.textContent = this.score; }
+      updateTargetsLeft(){ this.targetsLeftElement.textContent = this.targets.length; }
+
+      victory(){
+        this.gameRunning = false;
+        this.victoryMessage.classList.remove('hidden');
+        this.victoryMessage.classList.add('victory');
+        playSound('victory');
+      }
+
+      restart(){
+        this.bullets.forEach(b=>b.element.remove());
+        this.targets.forEach(t=>t.element.remove());
+        document.querySelectorAll('.explosion').forEach(e=>e.remove());
+        this.bullets=[]; this.targets=[]; this.score=0; this.gameRunning=true;
+        this.tankX = this.gameWidth * 0.5; this.moveDir = 0;
+        this.applyTankLeft();
+        this.victoryMessage.classList.add('hidden');
+        this.victoryMessage.classList.remove('victory');
+        this.updateScore();
+        this.createTargets();
+      }
+
+      gameLoop(){
+        if (this.gameRunning){
+          this.updateTankByDir();
+          this.updateBullets();
+          this.checkCollisions();
+        }
+        requestAnimationFrame(()=>this.gameLoop());
+      }
+    }
+
+    /* ========= 語音控制：不中斷策略 ========= */
+    class VoiceController {
+      constructor(game){
+        this.game = game;
+        this.recognition = null;
+        this.active = false;
+
+        this.permissionGranted = false;
+        this.autoResumeEl = document.getElementById('autoResumeToggle');
+
+        // 退避與看門狗
+        this.restartAttempts = 0;
+        this.maxRestart = 20;
+        this.lastEventAt = 0;
+        this.watchdogTimer = null;
+        this.watchdogIntervalMs = 2500; // 沉默多久視為卡住，強制重啟
+        this.restartCooldown = false;
+
+        // UI
+        this.startBtn = document.getElementById('startVoiceBtn');
+        this.stopBtn = document.getElementById('stopVoiceBtn');
+        this.micLed = document.getElementById('micLed');
+        this.voiceStatus = document.getElementById('voiceStatus');
+        this.lastCmdEl = document.getElementById('lastCommand');
+        this.interimEl = document.getElementById('interimText');
+
+        this.startBtn.addEventListener('click', () => this.requestMicThenStart());
+        this.stopBtn.addEventListener('click', () => this.stop());
+
+        // 指令集合
+        this.cmds = {
+          leftContinuous: ['向左移動','往左移動','左邊移動','向左','左轉'],
+          rightContinuous: ['向右移動','往右移動','右邊移動','向右','右轉'],
+          leftStep: ['向左一點','往左一點','左邊一點','左一點','左一下','左一步'],
+          rightStep: ['向右一點','往右一點','右邊一點','右一點','右一下','右一步'],
+          stop: ['停止','停下','停','不要動','先停一下'],
+          fire: ['發射','開火','發射砲彈','射擊','開炮','開砲']
+        };
+
+        // 標籤頁可見性
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState !== 'visible') {
+            // 暫停（避免背景反覆啟動）
+            if (this.active) this._safeStop();
+          } else {
+            // 回來自動續聽
+            if (this.permissionGranted && this.autoResumeEl.checked) this.start(true);
+          }
+        });
+      }
+
+      async requestMicThenStart(){
+        // 權限快取
+        try {
+          if (navigator.permissions && navigator.permissions.query) {
+            const status = await navigator.permissions.query({name:'microphone'});
+            if (status.state === 'granted') this.permissionGranted = true;
+          }
+        } catch(_) {}
+        if (!this.permissionGranted) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.permissionGranted = true;
+            // 立刻停用 tracks：不占用麥克風，避免彈窗循環
+            stream.getTracks().forEach(t=>t.stop());
+          } catch(e){
+            this.voiceStatus.textContent = '語音：麥克風被拒絕';
+            this.micLed.className = 'led bg-red-400';
+            return;
+          }
+        }
+        this.start();
+      }
+
+      ensureRecognition(){
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR){
+          this.voiceStatus.textContent = '語音：瀏覽器不支援 Web Speech API';
+          this.micLed.className = 'led bg-gray-400';
+          return null;
+        }
+        if (!this.recognition){
+          const rec = new SR();
+          rec.lang = 'zh-TW';
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.maxAlternatives = 3;
+
+          // 語法（可用則加強）
+          const SGL = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+          if (SGL) {
+            const list = new SGL();
+            const all = [
+              ...this.cmds.leftContinuous, ...this.cmds.rightContinuous,
+              ...this.cmds.leftStep, ...this.cmds.rightStep,
+              ...this.cmds.stop, ...this.cmds.fire
+            ];
+            const uniq = Array.from(new Set(all));
+            const grammar = 'grammar cmds; public <cmd> = ' + uniq.join(' | ') + ' ;';
+            list.addFromString(grammar, 1);
+            rec.grammars = list;
+          }
+
+          // 共用：更新活動時間、啟動看門狗
+          const touch = () => {
+            this.lastEventAt = performance.now();
+            this._armWatchdog();
+          };
+
+          rec.onaudiostart = touch;
+          rec.onaudioend   = () => { touch(); this._scheduleRestart('audioend'); };
+          rec.onsoundstart = touch;
+          rec.onsoundend   = () => { touch(); this._scheduleRestart('soundend'); };
+          rec.onspeechstart= touch;
+          rec.onspeechend  = () => { touch(); this._scheduleRestart('speechend'); };
+
+          rec.onstart = () => {
+            this.active = true;
+            this.restartAttempts = 0;
+            this.micLed.className = 'led bg-green-500';
+            this.voiceStatus.textContent = '語音：辨識中';
+            touch();
+          };
+
+          rec.onresult = (e) => {
+            touch();
+            let interim = '';
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const transcript = e.results[i][0].transcript.trim();
+              if (e.results[i].isFinal) {
+                this._applyCommand(transcript, false);
+                this.interimEl.textContent = '';
+              } else {
+                interim += transcript + ' ';
+                this._applyCommand(transcript, true); // 即時反應
+              }
+            }
+            if (interim) this.interimEl.textContent = interim;
+          };
+
+          rec.onerror = (e) => {
+            touch();
+            // 權限類錯誤：停
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+              this._safeStop(true);
+              this.permissionGranted = false;
+              this.voiceStatus.textContent = '語音：權限被拒絕';
+              this.micLed.className = 'led bg-red-400';
+              return;
+            }
+            // 其他錯誤：嘗試重啟
+            this.voiceStatus.textContent = `語音：錯誤 (${e.error})`;
+            this.micLed.className = 'led bg-yellow-400';
+            this._scheduleRestart('error:'+e.error);
+          };
+
+          rec.onend = () => {
+            this.active = false;
+            this.micLed.className = 'led bg-red-400';
+            this.voiceStatus.textContent = '語音：已停止';
+            this._scheduleRestart('end');
+          };
+
+          this.recognition = rec;
+        }
+        return this.recognition;
+      }
+
+      start(isAuto=false){
+        if (!this.permissionGranted){
+          this.voiceStatus.textContent = '語音：尚未授權麥克風';
+          this.micLed.className = 'led bg-red-400';
+          return;
+        }
+        const rec = this.ensureRecognition();
+        if (!rec) return;
+        try {
+          if (this.active) return;
+          this._armWatchdog();
+          rec.start();
+          if (!isAuto){
+            this.voiceStatus.textContent = '語音：啟動中…';
+            this.micLed.className = 'led bg-yellow-400';
+          }
+        } catch(err){ console.warn('recognition start error:', err); }
+      }
+
+      stop(){
+        this._safeStop(true);
+      }
+
+      /* ---- 可靠重啟工具 ---- */
+      _safeStop(user=false){
+        // 停止 + 清掉看門狗
+        this._disarmWatchdog();
+        if (this.recognition) {
+          try { this.recognition.stop(); } catch(_) {}
+        }
+        if (user) {
+          this.restartAttempts = 0;
+          this.voiceStatus.textContent = '語音：已停止（使用者）';
+          this.micLed.className = 'led bg-red-400';
+        }
+      }
+
+      _scheduleRestart(reason){
+        // 條件：允許自動續聽、已授權、頁面可見、未超限、未在冷卻中
+        if (!this.autoResumeEl.checked) return;
+        if (!this.permissionGranted) return;
+        if (document.visibilityState !== 'visible') return;
+        if (this.restartAttempts >= this.maxRestart) return;
+        if (this.restartCooldown) return;
+
+        this.restartCooldown = true;
+        const delay = 200 + Math.min(1000, this.restartAttempts * 200); // 退避
+        this.restartAttempts++;
+        setTimeout(() => {
+          this.restartCooldown = false;
+          this.start(true);
+        }, delay);
+      }
+
+      _armWatchdog(){
+        this.lastEventAt = performance.now();
+        if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+        this.watchdogTimer = setInterval(() => {
+          if (!this.autoResumeEl.checked) return;
+          if (!this.active) return; // 已停止，等 onend 流程
+          const now = performance.now();
+          if (now - this.lastEventAt > this.watchdogIntervalMs) {
+            // 長時間無事件，視為卡住 -> 重啟
+            try { this.recognition.abort?.(); } catch(_) {}
+            this._scheduleRestart('watchdog');
+            this.lastEventAt = now;
+          }
+        }, Math.max(800, this.watchdogIntervalMs/2));
+      }
+
+      _disarmWatchdog(){
+        if (this.watchdogTimer) {
+          clearInterval(this.watchdogTimer);
+          this.watchdogTimer = null;
+        }
+      }
+
+      /* ---- 指令套用 ---- */
+      _applyCommand(text, isInterim){
+        const t = text.replace(/\s+/g,'').toLowerCase();
+        const matchIn = (arr) => arr.some(k => t.includes(k.replace(/\s+/g,'')));
+
+        let acted = false;
+        if (matchIn(this.cmds.stop)) { this.game.moveDir = 0; acted = true; }
+        else if (matchIn(this.cmds.leftContinuous)) { this.game.moveDir = -1; acted = true; }
+        else if (matchIn(this.cmds.rightContinuous)) { this.game.moveDir = 1; acted = true; }
+        else if (matchIn(this.cmds.leftStep)) { this.game.moveStep(-1); this.game.moveDir = 0; acted = true; }
+        else if (matchIn(this.cmds.rightStep)) { this.game.moveStep(1); this.game.moveDir = 0; acted = true; }
+        else if (matchIn(this.cmds.fire)) { this.game.shoot(); acted = true; }
+
+        if (acted) this.lastCmdEl.textContent = text + (isInterim ? '（即時）' : '');
+      }
+    }
+
+    /* ========= 啟動 ========= */
+    window.addEventListener('load', () => {
+      const game = new TankGame();
+      const voice = new VoiceController(game);
+
+      // 讓任何互動都能解鎖音訊自動播放
+      ['click','keydown','touchstart'].forEach(ev=>{
+        window.addEventListener(ev, ()=>ensureAudioContext(), { once:true, passive:true });
+      });
+    });
+  </script>
+</body>
+</html>
